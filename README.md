@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
-![Tests](https://img.shields.io/badge/tests-308%20passing-green)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
+![Tests](https://img.shields.io/badge/tests-388%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,9 +16,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.9 - Active Development
+**Version**: v0.10.0 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 308 tests, 100% pass rate
+**Test Coverage**: 388+ tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -36,9 +36,19 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
-- 308 passing tests across 11 test files
+- **Telegram Integration for remote monitoring, notifications, and interactive Q&A**
+- 388+ passing tests across 12 test files
 
 ### Recent Improvements
+
+**v0.10.0 - Telegram Integration**
+- Full Telegram bot integration for remote monitoring and control
+- Real-time notifications: loop progress, errors, circuit breaker events, completions
+- Interactive Q&A: Claude can ask questions via Telegram, you reply from your phone
+- Remote commands: /status, /pause, /resume, /reset, /stop, /logs, /help
+- Environment-based configuration via `.env` file
+- Question timeout with automatic fallback when user doesn't respond
+- Added 80+ new tests for Telegram functionality
 
 **v0.9.9 - EXIT_SIGNAL Gate & Uninstall Script**
 - Fixed premature exit bug: completion indicators now require Claude's explicit `EXIT_SIGNAL: true`
@@ -127,6 +137,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
 - **CI/CD Integration** - GitHub Actions workflow with automated testing
 - **Clean Uninstall** - Dedicated uninstall script for complete removal
+- **Telegram Integration** - Remote notifications, interactive Q&A, and bot commands from your phone
 
 ## Quick Start
 
@@ -397,6 +408,107 @@ cat .ralph_session_history      # View session transition history
 
 Sessions are persisted to `.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph_session_history` for debugging.
 
+### Telegram Integration
+
+Ralph can send notifications, ask questions, and receive commands via Telegram, enabling remote monitoring from your phone.
+
+#### Quick Setup
+
+1. **Create a Telegram Bot**:
+   - Message [@BotFather](https://t.me/BotFather) on Telegram
+   - Send `/newbot` and follow the prompts
+   - Save the bot token (e.g., `123456789:ABCdefGHI...`)
+
+2. **Get Your Chat ID**:
+   - Message your new bot (send any message)
+   - Run: `ralph --telegram-setup`
+   - Ralph will fetch your chat ID automatically
+
+3. **Configure Environment**:
+   Create a `.env` file in your project directory:
+   ```bash
+   RALPH_TELEGRAM_BOT_TOKEN=your_bot_token_here
+   RALPH_TELEGRAM_CHAT_ID=your_chat_id_here
+   RALPH_TELEGRAM_ENABLED=true
+   ```
+
+4. **Test the Connection**:
+   ```bash
+   ralph --telegram-test
+   ```
+
+#### Usage
+
+```bash
+# Start Ralph with Telegram notifications
+ralph --telegram --monitor
+
+# Disable Telegram for a session
+ralph --no-telegram
+
+# Test Telegram connection
+ralph --telegram-test
+
+# Interactive setup wizard
+ralph --telegram-setup
+```
+
+#### Notification Types
+
+Ralph sends notifications for:
+- **Loop Progress**: "Loop 5 completed successfully"
+- **Errors**: Immediate alerts when errors occur
+- **Circuit Breaker**: Warnings when circuit opens/closes
+- **Completion**: "Project complete! All tasks finished."
+- **Questions**: Interactive prompts when Claude needs input
+
+#### Interactive Q&A
+
+When Claude needs to make a decision, it can ask you via Telegram:
+
+```
+Claude is asking a question:
+
+Should I use PostgreSQL or SQLite for the database?
+
+Context: PostgreSQL is better for production. SQLite is simpler for development.
+
+Reply within 5 minutes or Ralph will continue without input.
+```
+
+Simply reply to the message, and Ralph injects your answer into the next loop.
+
+#### Remote Commands
+
+Control Ralph from Telegram with these commands:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/status` | Get current loop status and progress |
+| `/pause` | Pause the Ralph loop (completes current iteration) |
+| `/resume` | Resume a paused loop |
+| `/reset` | Reset the circuit breaker |
+| `/stop` | Stop Ralph gracefully |
+| `/logs` | Get recent log entries |
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RALPH_TELEGRAM_BOT_TOKEN` | - | Your Telegram bot token (required) |
+| `RALPH_TELEGRAM_CHAT_ID` | - | Your Telegram chat ID (required) |
+| `RALPH_TELEGRAM_ENABLED` | `false` | Enable/disable Telegram integration |
+| `RALPH_TELEGRAM_QUESTION_TIMEOUT` | `300` | Seconds to wait for question replies |
+| `RALPH_TELEGRAM_POLL_INTERVAL` | `2` | Seconds between message checks |
+
+#### Security Notes
+
+- Never commit your `.env` file (it's in `.gitignore`)
+- Bot tokens grant full bot access - keep them secret
+- Use a dedicated bot for Ralph, not a shared one
+- Chat ID ensures only you receive notifications
+
 ### Exit Thresholds
 
 Modify these variables in `~/.ralph/ralph_loop.sh`:
@@ -483,7 +595,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (308 tests)
+# Run all tests (388+ tests)
 npm test
 
 # Run specific test suites
@@ -497,6 +609,7 @@ bats tests/integration/test_loop_execution.bats
 bats tests/integration/test_prd_import.bats
 bats tests/integration/test_project_setup.bats
 bats tests/integration/test_installation.bats
+bats tests/unit/test_telegram.bats
 
 # Run error detection and circuit breaker tests
 ./tests/test_error_detection.sh
@@ -504,10 +617,10 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **308 tests** across 11 test files
-- **100% pass rate** (308/308 passing)
+- **388+ tests** across 12 test files
+- **100% pass rate** (all tests passing)
 - Comprehensive unit and integration tests
-- Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, and installation workflows
+- Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, installation workflows, and Telegram integration
 
 > **Note on Coverage**: Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. Test pass rate (100%) is the quality gate. See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
 
@@ -591,7 +704,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 308 tests must pass
+npm test  # All tests must pass (388+)
 ```
 
 ### Priority Contribution Areas
@@ -646,6 +759,10 @@ ralph [OPTIONS]
   --reset-circuit         Reset the circuit breaker
   --circuit-status        Show circuit breaker status
   --reset-session         Reset session state manually
+  --telegram              Enable Telegram notifications for this session
+  --no-telegram           Disable Telegram notifications for this session
+  --telegram-setup        Interactive Telegram bot setup wizard
+  --telegram-test         Send a test message to verify Telegram connection
 ```
 
 ### Project Commands (Per Project)
@@ -674,14 +791,14 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.9.9
+### Current Status: v0.10.0
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- 308 comprehensive tests (100% pass rate)
+- 388+ comprehensive tests (100% pass rate)
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
@@ -691,11 +808,12 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Session lifecycle management with auto-reset triggers
 - Session expiration with configurable timeout
 - Dedicated uninstall script
+- Telegram integration for remote monitoring and control
 
 **Test Coverage Breakdown:**
-- Unit Tests: 164 (CLI parsing, JSON, exit detection, rate limiting, session continuity)
+- Unit Tests: 244+ (CLI parsing, JSON, exit detection, rate limiting, session continuity, Telegram)
 - Integration Tests: 144 (loop execution, edge cases, installation, project setup, PRD import)
-- Test Files: 11
+- Test Files: 12
 
 ### Path to v1.0.0 (~4 weeks)
 
