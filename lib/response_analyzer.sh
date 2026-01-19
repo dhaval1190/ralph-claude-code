@@ -301,11 +301,36 @@ analyze_response() {
     # If explicit signal found, heuristics should NOT override Claude's intent
     local explicit_exit_signal_found=false
 
+    # Variables for RALPH_STATUS fields (used in JSON output)
+    local tasks_completed=0
+    local test_status="NOT_RUN"
+    local recommendation=""
+    local question=""
+    local question_context=""
+
     # 1. Check for explicit structured output (if Claude follows schema)
     if grep -q -- "---RALPH_STATUS---" "$output_file"; then
         # Parse structured output
-        local status=$(grep "STATUS:" "$output_file" | cut -d: -f2 | xargs)
-        local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | cut -d: -f2 | xargs)
+        local status=$(grep "STATUS:" "$output_file" | head -1 | cut -d: -f2 | xargs)
+        local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | head -1 | cut -d: -f2 | xargs)
+
+        # Extract additional RALPH_STATUS fields
+        tasks_completed=$(grep "TASKS_COMPLETED_THIS_LOOP:" "$output_file" | head -1 | cut -d: -f2 | xargs || echo "0")
+        tasks_completed=${tasks_completed:-0}
+
+        local files_from_status=$(grep "FILES_MODIFIED:" "$output_file" | head -1 | cut -d: -f2 | xargs || echo "0")
+        if [[ -n "$files_from_status" && "$files_from_status" =~ ^[0-9]+$ ]]; then
+            files_modified=$files_from_status
+        fi
+
+        test_status=$(grep "TESTS_STATUS:" "$output_file" | head -1 | cut -d: -f2 | xargs || echo "NOT_RUN")
+        test_status=${test_status:-NOT_RUN}
+
+        recommendation=$(grep "RECOMMENDATION:" "$output_file" | head -1 | cut -d: -f2- | xargs || echo "")
+
+        # Extract QUESTION and QUESTION_CONTEXT for interactive Q&A (Phase 2)
+        question=$(grep "QUESTION:" "$output_file" | head -1 | cut -d: -f2- | xargs || echo "")
+        question_context=$(grep "QUESTION_CONTEXT:" "$output_file" | head -1 | cut -d: -f2- | xargs || echo "")
 
         # If EXIT_SIGNAL is explicitly provided, respect it
         if [[ -n "$exit_sig" ]]; then
@@ -438,6 +463,11 @@ analyze_response() {
         --argjson exit_signal "$exit_signal" \
         --arg work_summary "$work_summary" \
         --argjson output_length "$output_length" \
+        --argjson tasks_completed "${tasks_completed:-0}" \
+        --arg test_status "${test_status:-NOT_RUN}" \
+        --arg recommendation "${recommendation:-}" \
+        --arg question "${question:-}" \
+        --arg question_context "${question_context:-}" \
         '{
             loop_number: $loop_number,
             timestamp: $timestamp,
@@ -452,7 +482,12 @@ analyze_response() {
                 confidence_score: $confidence_score,
                 exit_signal: $exit_signal,
                 work_summary: $work_summary,
-                output_length: $output_length
+                output_length: $output_length,
+                tasks_completed: $tasks_completed,
+                test_status: $test_status,
+                recommendation: $recommendation,
+                question: $question,
+                question_context: $question_context
             }
         }' > "$analysis_result_file"
 

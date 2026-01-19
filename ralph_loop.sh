@@ -10,6 +10,7 @@ SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+source "$SCRIPT_DIR/lib/telegram_notifier.sh"
 
 # Configuration
 PROMPT_FILE="PROMPT.md"
@@ -244,12 +245,16 @@ increment_call_counter() {
 wait_for_reset() {
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     log_status "WARN" "Rate limit reached ($calls_made/$MAX_CALLS_PER_HOUR). Waiting for reset..."
-    
+
     # Calculate time until next hour
     local current_minute=$(date +%M)
     local current_second=$(date +%S)
     local wait_time=$(((60 - current_minute - 1) * 60 + (60 - current_second)))
-    
+
+    # Send Telegram notification about rate limit
+    local reset_time=$(date -d "+$wait_time seconds" +%H:%M 2>/dev/null || date -v+${wait_time}S +%H:%M 2>/dev/null || echo "~1 hour")
+    send_rate_limit "$calls_made" "$MAX_CALLS_PER_HOUR" "$reset_time" 2>/dev/null || true
+
     log_status "INFO" "Sleeping for $wait_time seconds until next hour..."
     
     # Countdown display
@@ -439,6 +444,16 @@ build_loop_context() {
 
     # Add loop number
     context="Loop #${loop_count}. "
+
+    # Phase 2: Inject user's answer to previous question if available
+    if [[ -f ".user_response" ]]; then
+        local user_answer=$(cat ".user_response" 2>/dev/null | head -c 300)
+        if [[ -n "$user_answer" ]]; then
+            context+="USER ANSWERED YOUR QUESTION: \"${user_answer}\". Please proceed based on this answer. "
+            # Clear the response file after injecting
+            rm -f ".user_response"
+        fi
+    fi
 
     # Extract incomplete tasks from @fix_plan.md
     if [[ -f "@fix_plan.md" ]]; then
@@ -1027,10 +1042,21 @@ loop_count=0
 
 # Main loop
 main() {
-    
+    # Load environment variables from .env file
+    load_env 2>/dev/null || true
+
+    # Initialize Telegram if configured
+    if init_telegram 2>/dev/null; then
+        log_status "INFO" "Telegram notifications enabled"
+    fi
+
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
+
+    # Send startup notification to Telegram
+    local project_name=$(basename "$(pwd)")
+    send_startup "$project_name" "$MAX_CALLS_PER_HOUR" 2>/dev/null || true
     
     # Check if this is a Ralph project directory
     if [[ ! -f "$PROMPT_FILE" ]]; then
@@ -1069,16 +1095,54 @@ main() {
         # Update session last_used timestamp
         update_session_last_used
 
+        # Phase 3: Check for Telegram commands
+        check_telegram_commands 2>/dev/null || true
+
+        # Phase 3: Check for stop request from Telegram
+        if should_stop 2>/dev/null; then
+            log_status "INFO" "Stop requested via Telegram"
+            clear_stop_flag 2>/dev/null
+            send_shutdown "Stopped via Telegram /stop command" "$loop_count" "0" 2>/dev/null || true
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "stopped" "user_requested"
+            break
+        fi
+
+        # Phase 3: Check for pause request from Telegram
+        if should_pause 2>/dev/null; then
+            log_status "INFO" "Paused via Telegram - waiting for /resume"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "paused" "user_requested"
+
+            # Wait loop for resume
+            while should_pause 2>/dev/null; do
+                # Check for commands while paused
+                check_telegram_commands 2>/dev/null || true
+                # Also check for stop while paused
+                if should_stop 2>/dev/null; then
+                    clear_stop_flag 2>/dev/null
+                    clear_pause_flag 2>/dev/null
+                    send_shutdown "Stopped via Telegram while paused" "$loop_count" "0" 2>/dev/null || true
+                    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "stopped" "user_requested"
+                    exit 0
+                fi
+                sleep 5
+            done
+
+            log_status "INFO" "Resumed via Telegram"
+            send_telegram_message "Resuming loop #$loop_count..." 2>/dev/null || true
+        fi
+
         log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
-        
+
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
-        
+
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
             reset_session "circuit_breaker_open"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
+            # Send Telegram notification
+            send_circuit_breaker "OPEN" "Stagnation detected - no progress in recent loops" "$loop_count" 2>/dev/null || true
             break
         fi
 
@@ -1100,6 +1164,9 @@ main() {
             log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
             log_status "INFO" "  - Exit reason: $exit_reason"
 
+            # Send Telegram shutdown notification
+            send_shutdown "$exit_reason" "$loop_count" "0" 2>/dev/null || true
+
             break
         fi
         
@@ -1114,6 +1181,34 @@ main() {
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
 
+            # Send loop completion notification to Telegram
+            if [[ -f ".response_analysis" ]]; then
+                local tg_tasks=$(jq -r '.analysis.tasks_completed // 0' .response_analysis 2>/dev/null || echo "0")
+                local tg_files=$(jq -r '.analysis.files_modified // 0' .response_analysis 2>/dev/null || echo "0")
+                local tg_tests=$(jq -r '.analysis.test_status // "NOT_RUN"' .response_analysis 2>/dev/null || echo "NOT_RUN")
+                local tg_recommendation=$(jq -r '.analysis.recommendation // ""' .response_analysis 2>/dev/null | head -c 100)
+                send_loop_complete "$loop_count" "$tg_tasks" "$tg_files" "$tg_tests" "$tg_recommendation" 2>/dev/null || true
+
+                # Phase 2: Check for questions from Claude and handle via Telegram
+                local tg_question=$(jq -r '.analysis.question // ""' .response_analysis 2>/dev/null || echo "")
+                local tg_question_context=$(jq -r '.analysis.question_context // ""' .response_analysis 2>/dev/null || echo "")
+
+                if [[ -n "$tg_question" ]] && telegram_enabled 2>/dev/null; then
+                    log_status "INFO" "Claude has a question: ${tg_question:0:50}..."
+                    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "waiting_for_input" "question"
+
+                    # Send question and wait for reply
+                    local user_reply
+                    user_reply=$(ask_telegram_question "$tg_question" "$tg_question_context" "$loop_count" 2>/dev/null)
+
+                    if [[ -n "$user_reply" ]]; then
+                        log_status "SUCCESS" "Received user reply: ${user_reply:0:50}..."
+                    else
+                        log_status "INFO" "No reply received or user skipped, Claude will decide"
+                    fi
+                fi
+            fi
+
             # Brief pause between successful executions
             sleep 5
         elif [ $exec_result -eq 3 ]; then
@@ -1122,6 +1217,8 @@ main() {
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
+            # Send Telegram notification
+            send_circuit_breaker "OPEN" "Execution triggered circuit breaker" "$loop_count" 2>/dev/null || true
             break
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
@@ -1163,6 +1260,8 @@ main() {
         else
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
+            # Send error notification to Telegram
+            send_error "Execution failed with exit code $exec_result" "$loop_count" 2>/dev/null || true
             sleep 30
         fi
         
@@ -1197,6 +1296,12 @@ Modern CLI Options (Phase 1.1):
     --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
     --no-continue           Disable session continuity across loops
     --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
+
+Telegram Integration:
+    --telegram-setup        Interactive Telegram bot setup
+    --telegram-test         Test Telegram connection and send test message
+    --telegram              Enable Telegram notifications (reads from .env)
+    --no-telegram           Disable Telegram notifications
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -1316,6 +1421,26 @@ while [[ $# -gt 0 ]]; do
             fi
             CLAUDE_SESSION_EXPIRY_HOURS="$2"
             shift 2
+            ;;
+        --telegram-setup)
+            load_env 2>/dev/null || true
+            setup_telegram
+            exit $?
+            ;;
+        --telegram-test)
+            load_env
+            init_telegram
+            test_telegram_connection
+            exit $?
+            ;;
+        --telegram)
+            # Force enable Telegram (will load from .env)
+            RALPH_TELEGRAM_ENABLED="true"
+            shift
+            ;;
+        --no-telegram)
+            RALPH_TELEGRAM_ENABLED="false"
+            shift
             ;;
         *)
             echo "Unknown option: $1"

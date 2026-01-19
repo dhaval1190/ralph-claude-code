@@ -7,6 +7,14 @@ status.json
 .ralph_session_history
 .claude_session_id
 
+# Environment and secrets (NEVER commit these)
+.env
+.ralph_telegram
+.telegram_offset
+.user_response
+.telegram_paused
+.telegram_stop
+
 # Logs
 logs/*
 !logs/.gitkeep

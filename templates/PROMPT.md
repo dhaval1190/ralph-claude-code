@@ -47,9 +47,19 @@ FILES_MODIFIED: <number>
 TESTS_STATUS: PASSING | FAILING | NOT_RUN
 WORK_TYPE: IMPLEMENTATION | TESTING | DOCUMENTATION | REFACTORING
 EXIT_SIGNAL: false | true
+QUESTION: <optional - ask user a question if you need input>
+QUESTION_CONTEXT: <optional - provide context for your question>
 RECOMMENDATION: <one line summary of what to do next>
 ---END_RALPH_STATUS---
 ```
+
+### Asking Questions (Telegram Integration)
+
+If you need user input to proceed (e.g., choosing between approaches, clarifying requirements), use the QUESTION field:
+- **QUESTION**: Your question to the user (clear, specific, actionable)
+- **QUESTION_CONTEXT**: Brief context to help them answer (optional but recommended)
+
+Ralph will send your question to Telegram and inject the user's reply into the next loop. If no reply within timeout, you'll need to make the decision yourself.
 
 ### When to set EXIT_SIGNAL: true
 
@@ -98,6 +108,21 @@ TESTS_STATUS: FAILING
 WORK_TYPE: DEBUGGING
 EXIT_SIGNAL: false
 RECOMMENDATION: Need human help - same error for 3 loops
+---END_RALPH_STATUS---
+```
+
+**Example 4: Asking a question**
+```
+---RALPH_STATUS---
+STATUS: BLOCKED
+TASKS_COMPLETED_THIS_LOOP: 1
+FILES_MODIFIED: 2
+TESTS_STATUS: PASSING
+WORK_TYPE: IMPLEMENTATION
+EXIT_SIGNAL: false
+QUESTION: Should I use PostgreSQL or SQLite for the database?
+QUESTION_CONTEXT: PostgreSQL is better for production and concurrent access. SQLite is simpler for development and single-user scenarios.
+RECOMMENDATION: Waiting for user input on database choice
 ---END_RALPH_STATUS---
 ```
 
