@@ -174,15 +174,23 @@ send_telegram_plain() {
 # ============================================
 
 # Send loop completion notification
-# Usage: send_loop_complete <loop_number> <tasks_completed> <files_modified> <test_status> [recommendation]
+# Usage: send_loop_complete <loop_number> <tasks_completed> <files_modified> <test_status> <remaining_tasks> <work_summary> [recommendation]
 send_loop_complete() {
     local loop_number="$1"
     local tasks_completed="$2"
     local files_modified="$3"
     local test_status="$4"
-    local recommendation="${5:-}"
+    local remaining_tasks="${5:-0}"
+    local work_summary="${6:-}"
+    local recommendation="${7:-}"
 
     if [[ "${RALPH_NOTIFY_LOOP_COMPLETE:-true}" != "true" ]]; then
+        return 0
+    fi
+
+    # Skip notification if no actual work was done
+    if [[ "$tasks_completed" == "0" && "$files_modified" == "0" ]]; then
+        log_telegram "INFO" "Skipping notification - no work done this loop"
         return 0
     fi
 
@@ -190,17 +198,25 @@ send_loop_complete() {
     case "$test_status" in
         PASSING|passing) test_emoji="PASS" ;;
         FAILING|failing) test_emoji="FAIL" ;;
-        NOT_RUN|not_run) test_emoji="SKIP" ;;
+        NOT_RUN|not_run) test_emoji="-" ;;
     esac
 
     local message="*Loop #${loop_number} Complete*
 
-Tasks: ${tasks_completed} | Files: ${files_modified} | Tests: ${test_emoji}"
+Done: ${tasks_completed} tasks | ${files_modified} files
+Remaining: ${remaining_tasks} tasks | Tests: ${test_emoji}"
+
+    if [[ -n "$work_summary" ]]; then
+        message+="
+
+*Work done:*
+${work_summary}"
+    fi
 
     if [[ -n "$recommendation" ]]; then
         message+="
 
-Next: ${recommendation}"
+*Next:* ${recommendation}"
     fi
 
     send_telegram_message "$message"

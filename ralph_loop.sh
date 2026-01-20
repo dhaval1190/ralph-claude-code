@@ -1200,7 +1200,17 @@ main() {
                 local tg_files=$(jq -r '.analysis.files_modified // 0' .response_analysis 2>/dev/null || echo "0")
                 local tg_tests=$(jq -r '.analysis.test_status // "NOT_RUN"' .response_analysis 2>/dev/null || echo "NOT_RUN")
                 local tg_recommendation=$(jq -r '.analysis.recommendation // ""' .response_analysis 2>/dev/null | head -c 100)
-                send_loop_complete "$loop_count" "$tg_tasks" "$tg_files" "$tg_tests" "$tg_recommendation" 2>/dev/null || true
+                local tg_work_summary=$(jq -r '.analysis.summary // ""' .response_analysis 2>/dev/null | head -c 200)
+
+                # Calculate remaining tasks from @fix_plan.md
+                local tg_remaining=0
+                if [[ -f "@fix_plan.md" ]]; then
+                    local total_items=$(grep -c '^\s*- \[' "@fix_plan.md" 2>/dev/null || echo "0")
+                    local completed_items=$(grep -c '^\s*- \[x\]' "@fix_plan.md" 2>/dev/null || echo "0")
+                    tg_remaining=$((total_items - completed_items))
+                fi
+
+                send_loop_complete "$loop_count" "$tg_tasks" "$tg_files" "$tg_tests" "$tg_remaining" "$tg_work_summary" "$tg_recommendation" 2>/dev/null || true
 
                 # Phase 2: Check for questions from Claude and handle via Telegram
                 local tg_question=$(jq -r '.analysis.question // ""' .response_analysis 2>/dev/null || echo "")
