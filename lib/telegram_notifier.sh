@@ -83,12 +83,12 @@ in_quiet_hours() {
     # Handle overnight quiet hours (e.g., 23:00 to 07:00)
     if [[ "$start" > "$end" ]]; then
         # Overnight period
-        if [[ "$current_time" >= "$start" ]] || [[ "$current_time" < "$end" ]]; then
+        if [[ "$current_time" > "$start" || "$current_time" == "$start" ]] || [[ "$current_time" < "$end" ]]; then
             return 0  # In quiet hours
         fi
     else
         # Same-day period
-        if [[ "$current_time" >= "$start" ]] && [[ "$current_time" < "$end" ]]; then
+        if [[ "$current_time" > "$start" || "$current_time" == "$start" ]] && [[ "$current_time" < "$end" ]]; then
             return 0  # In quiet hours
         fi
     fi

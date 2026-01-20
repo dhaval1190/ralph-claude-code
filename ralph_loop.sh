@@ -81,6 +81,19 @@ NC='\033[0m' # No Color
 # Initialize directories
 mkdir -p "$LOG_DIR" "$DOCS_DIR"
 
+# Setup timeout command (GNU coreutils on macOS uses gtimeout)
+TIMEOUT_CMD="timeout"
+if [[ "$(uname)" == "Darwin" ]]; then
+    if command -v gtimeout &> /dev/null; then
+        TIMEOUT_CMD="gtimeout"
+    elif command -v timeout &> /dev/null; then
+        TIMEOUT_CMD="timeout"
+    else
+        log_status "ERROR" "timeout command not found. Install coreutils: brew install coreutils"
+        exit 1
+    fi
+fi
+
 # Check if tmux is available
 check_tmux_available() {
     if ! command -v tmux &> /dev/null; then
@@ -881,7 +894,7 @@ execute_claude_code() {
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern execution with command array (shell-injection safe)
         # Execute array directly without bash -c to prevent shell metacharacter interpretation
-        if timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
+        if $TIMEOUT_CMD ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
@@ -894,7 +907,7 @@ execute_claude_code() {
 
     # Fall back to legacy stdin piping if modern mode failed or not enabled
     if [[ "$use_modern_cli" == "false" ]]; then
-        if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
+        if $TIMEOUT_CMD ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
